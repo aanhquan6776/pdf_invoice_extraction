@@ -9,6 +9,7 @@ from datetime import date
 
 sellerRegex = {'đơn vị bán hàng|đơn vị bán': 'sellerLegalName', 'mã số thuế|mst': 'sellerTaxCode'}
 buyerRegex = {'tên đơn vị|đơn vị': 'buyerLegalName', 'mã số thuế|mst': 'buyerTaxCode'}
+datespliter = ['-', '/']
 
 ################## GET DATES (CREATE DATE AND SIGNED DATE) #################
 
@@ -65,7 +66,10 @@ def checkDate(day, month, year, minyear=1900, maxyear=2100):
     
 # get 3 number day, month, year from date in form of string dd/mm/yyyy
 def getDateFromString(datestring):
-    result = datestring.replace('/', ' ').split()
+    for spliter in datespliter:
+        if re.search(spliter, datestring, re.IGNORECASE):
+            result = datestring.replace(spliter, ' ').split()
+            break
     return int(result[0]), int(result[1]), int(result[2])
     
 #check date in form of string dd/mm/yyyy
@@ -74,30 +78,33 @@ def checkDateString(datestring):
     return checkDate(day, month, year)
     
 #get the part from the title to above the part contains seller/buyer information(to get create date)
-def getTop(text):
+def getCreateDatePart(text):
     result = ''
     begin = 0
     end = len(text)
     
-    beginreg = ['hóa\s+đơn\s+giá\s+trị\s+gia\s+tăng']
-    endreg = ['đơn vị bán hàng|đơn vị bán', 'mã số thuế|mst', 'địa chỉ', 'điện thoại', 'website', 'số tài khoản|stk']
+    beginreg = ['ngày']
+    endreg = ['năm']
+    date_num_regex = '(19|20)\d{2}|([12]\d|3[01]|0?[1-9])'
     
     for reg in beginreg:
         found = re.search(reg, text, re.IGNORECASE)
         if found:
-            begin = begin + found.start()
-            break
+            begin = max(begin, found.start())
+            
     for reg in endreg:
         found = re.search(reg, text[begin:], re.IGNORECASE)
         if found:
-            end = begin + found.start()
-            break
+            end = min(end, begin + found.end())
             
+    endfound = re.search(date_num_regex, text[end:], re.IGNORECASE)
+    if endfound:
+        end = end + endfound.end()
+        
     result = text[begin:end]
     return result
 
-# get the part from the last cost found (to find signed date)
-def getBot(text):
+def getSignedDatePart(text):
     result = ''
     begin = 0
     cost_regex = '\d{1,3}([.]\d{3})+'
@@ -110,10 +117,69 @@ def getBot(text):
     result = text[begin:]
     return result
 
+def getCreateDate(text):
+    result = ''
+    dayregex = '([12]\d|3[01]|0?[1-9])'
+    monthregex = '(1[012]|0?[1-9])'
+    yearregex = '(19|20)\d{2}'
+    daylist = []
+    yearlist = []
+    
+    begin = 0
+    end = len(text)
+
+    while begin<end:
+        found = re.search(yearregex, text[begin:], re.IGNORECASE)
+        if found:
+            yearlist.append(text[begin+found.start(): begin+found.end()])
+            text = text.replace(text[begin+found.start(): begin+found.end()], '    ', 1)
+            begin = begin + found.end()
+        else:
+            break
+    begin = 0       
+    while begin<end:
+        found = re.search(dayregex, text[begin:], re.IGNORECASE)
+        if found:
+            daylist.append(text[begin+found.start(): begin+found.end()])
+            begin = begin + found.end()
+        else:
+            break
+    
+    
+#     print(daylist)
+#     print(yearlist)
+#     if len(yearlist)>0:
+#         yearstring = yearlist[0]
+#         currentyear = date.today().year    
+#         for year in yearlist:
+#             if (int(year)<=currentyear and currentyear-int(year)<currentyear-int(yearstring)):
+#                 yearstring = year
+#     else:
+#         return result
+    
+    if yearlist:
+        yearstring = yearlist[0]
+        if len(daylist)>=2:
+            n = len(daylist)
+            for i in range(n-1):
+                for j in range(i+1, n):
+                    if re.match(monthregex, daylist[j]):
+                        datestring = daylist[i] + '/' + daylist[j] + '/'+ yearstring
+                        if checkDateString(datestring):
+                            result = datestring
+                            return result
+        elif len(daylist)>0:
+            if re.match(monthregex, daylist[0]):
+                datestring = '1' + '/' + daylist[0] + '/'+ yearstring
+                if checkDateString(datestring):
+                    result = datestring
+                    return result
+    return result
+
 def getSignedDate(text):
     result = ''
     
-    regex = '\d{2}\/\d{2}\/\d{4}'
+    regex = '\d{1,2}[\/|-]\d{1,2}[\/|-]\d{4}'
     begin = 0
     while True:
         found = re.search(regex, text[begin:], re.IGNORECASE)
@@ -127,55 +193,25 @@ def getSignedDate(text):
             
     return result
 
-def getCreateDate(text):
-    result = ''
-    vector = preprocess(text)
-    dayregex = '^(0?[1-9]|[12]\d|3[01])$'
-    monthregex = '(0?[1-9]|1[012])$'
-    yearregex = '^(19|20)\d{2}$'
-    
-    daylist = list(filter(re.compile(dayregex).match, vector))
-    yearlist = list(filter(re.compile(yearregex).match, vector))
-    if len(yearlist)>0:
-        yearstring = yearlist[0]
-        currentyear = date.today().year    
-        for year in yearlist:
-            if (int(year)<=currentyear and currentyear-int(year)<currentyear-int(yearstring)):
-                yearstring = year
-    else:
-        return result
-    
-    if len(daylist)>=2 and len(yearlist):
-        n = len(daylist)
-        for i in range(n-1):
-            for j in range(i+1, n):
-                if re.match(monthregex, daylist[j]):
-                    datestring = daylist[i] + '/' + daylist[j] + '/'+ yearstring
-                    if checkDateString(datestring):
-                        result = datestring
-                        return result
-                    
-    return result
-
 # get create date and signed date
-def getAllDate(inputfile):
-    text = convert(inputfile)
-    
+def getAllDate(text):
     result = {}
     createDate = ''
     signedDate = ''
     
-    top = getTop(text)
-    bot = getBot(text)
+    createDatePart = getCreateDatePart(text)
+    signedDatePart = getSignedDatePart(text)
     
-    createDate = getCreateDate(top)
-    signedDate = getSignedDate(bot)
+    createDate = getCreateDate(createDatePart)
+    signedDate = getSignedDate(signedDatePart)
     
     result.update({'createDate': createDate})
     result.update({'signedDate': signedDate})
     return result
 
-################# GET SELLER AND BUYER INFORMATION ######################
+################# GET SELLER INFORMATION ######################
+def preprocessLegalName(name):
+    return ' '.join(name.split())
 
 def preprocessTaxCode(code):
 #     code = code.replace(' ', '')
@@ -211,13 +247,15 @@ def containSellerInfo(cell):
 
 #get seller name in the cell
 def getSellerLegalName(cell):
+#     print(cell)  
     result = ''
     begin = 0
     end = len(cell)
     
     beginreg = ['đơn vị bán hàng|đơn vị bán']
-    sellerreg = ['công ty', 'doanh nghiệp', 'tập đoàn']
+    sellerreg = ['công ty', 'doanh nghiệp', 'tập đoàn', 'chi nhánh', 'tổng công ty']
     endreg = ['mã số thuế|mst', 'địa chỉ', 'điện thoại', 'website', 'số tài khoản|stk']
+    otherreg = ['hóa đơn', 'giá trị', 'gia tăng', 'mẫu số', 'ký hiệu', 'số', 'liên', 'ngày', 'tháng', 'năm']
     
     for reg in beginreg:
         found = re.search(reg, cell[begin:], re.IGNORECASE)
@@ -227,100 +265,104 @@ def getSellerLegalName(cell):
             if colonfound:
                 begin = begin + colonfound.end()
             break
-            
+    
+    tmp = end
+    for reg in sellerreg:
+        found = re.search(reg, cell[begin:end], re.IGNORECASE)
+        if found:
+            tmp = min(tmp, found.start())
+    if tmp==end:
+        begin = begin
+    else:
+        begin = begin + tmp
+
     for reg in endreg:
         found = re.search(reg, cell[begin:], re.IGNORECASE)
         if found:
             end = min(end, begin + found.start())
-            
-    for reg in sellerreg:
-        found = re.search(reg, cell[begin:end], re.IGNORECASE)
+    
+    for reg in otherreg:
+        found = re.search(reg, cell[begin:], re.IGNORECASE)
         if found:
-            begin = begin + found.start()
-            break
+            end = min(end, begin + found.start())
             
-    result = cell[begin:end]
+    result = cell[begin:end].strip()
     return result
+
+#get seller info in getSellerInfo function fail
+def backupSellerInfo(text, seller):
+    for key, engkey in sellerRegex.items():
+        if len(seller.get(engkey))==0:
+            return getSellerInfo(text)
+    return seller
 
 #get seller info in the cell
 def getSellerInfo(cell):
     result = {}
-    allreg = ['đơn vị bán hàng|đơn vị bán', 'địa chỉ', 'mã số thuế|mst', 'điện thoại', 'website', 'số tài khoản|stk']
-    for key, engkey in sellerRegex.items():
-        if key == 'đơn vị bán hàng|đơn vị bán':
-            value = getSellerLegalName(cell).strip()
-            result.update({engkey:value})
-        else:
-            found = re.search(key, cell, re.IGNORECASE)
-            if found:
-                begin = found.end()
-                firstcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
-                if firstcolonfound:
-                    begin = begin + firstcolonfound.end()
-
-                secondcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
-                end = len(cell)
-                if secondcolonfound:
-                    end = begin + secondcolonfound.end()
-
-                for otherreg in allreg:
-                    if not otherreg == key:
-                        actualend = re.search(otherreg, cell[begin:end], re.IGNORECASE)
-                        if actualend:
-                            end = begin + actualend.start()
-                            break
-                        else:
-                            end = end
-                value = cell[begin : end].strip()
-                if key == 'mã số thuế|mst':
-                    value = preprocessTaxCode(value)
-                result.update({engkey:value})
-    return result
+    basic_regex = 'mã số thuế|mst'
+    seller_regex = 'đơn vị bán hàng|đơn vị bán'
+    buyer_regex = 'khách hàng|mua hàng|tên đơn vị|đơn vị'
+    third_regex = 'cung cấp giải pháp hóa đơn điện tử|phát hành|bởi'
+    all_regex = ['địa chỉ', 'mã số thuế|mst', 'điện thoại', 'website', 'số tài khoản|stk']
     
-#get buyer info in the cell
-def getBuyerInfo(cell):
-    result = {}
-    allreg = ['địa chỉ', 'mã số thuế|mst', 'điện thoại', 'website', 'họ tên người mua hàng|người mua', \
-              'khách hàng', 'tên đơn vị|đơn vị', 'hình thức thanh toán|httt', 'số tài khoản|stk']
-    for key, engkey in buyerRegex.items():
-        found = re.search(key, cell, re.IGNORECASE)
-        if found:
-            begin = found.end()
-            firstcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
-            if firstcolonfound:
-                begin = begin + firstcolonfound.end()
-            
-            secondcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
-            end = len(cell)
-            if secondcolonfound:
-                end = begin + secondcolonfound.end()
+    start = 0
         
-            for otherreg in allreg:
-                if not otherreg == key:
-                    actualend = re.search(otherreg, cell[begin:end], re.IGNORECASE)
-                    if actualend:
-                        end = begin + actualend.start()
-                        break
+    while start<len(cell):
+        # firstly, search for taxcode in the text
+        taxcode_found = re.search(basic_regex, cell[start:], re.IGNORECASE)
+        if taxcode_found:
+            # ensure that it is seller information          
+            if re.search(seller_regex, cell[start: start + taxcode_found.start()], re.IGNORECASE) \
+            or (not re.search(buyer_regex, cell[start: start + taxcode_found.start()], re.IGNORECASE) \
+            and not re.search(third_regex, cell[start: start + taxcode_found.start()], re.IGNORECASE)):
+                # get the name and the taxcode
+                for key, engkey in sellerRegex.items():
+                    if key == seller_regex:
+                        value = preprocessLegalName(getSellerLegalName(cell[start:start+taxcode_found.start()]))
+                        result.update({engkey:value})
                     else:
-                        end = end
-            value = cell[begin : end].strip()
-            if key == 'mã số thuế|mst':
-                value = preprocessTaxCode(value)
-            result.update({engkey:value})
+                        begin = start + taxcode_found.end()
+                        firstcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
+                        if firstcolonfound:
+                            begin = begin + firstcolonfound.end()
+
+                        secondcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
+                        end = len(cell)
+                        if secondcolonfound:
+                            end = begin + secondcolonfound.end()
+
+                        for otherreg in all_regex:
+                            if not otherreg == key:
+                                actualend = re.search(otherreg, cell[begin:end], re.IGNORECASE)
+                                if actualend:
+                                    end = begin + actualend.start()
+                                    break
+                                else:
+                                    end = end
+                        value = cell[begin : end].strip()
+                        if key == 'mã số thuế|mst':
+                            value = preprocessTaxCode(value)
+                        result.update({engkey:value})
+                return result
+            else:
+                start = taxcode_found.end()
+        else:
+            break
+            
     return result
 
 ################ GET COSTS #################
 
 #check if the cell contain a cost number
 def containCost(cell):
-    cost_regex = '\d{1,3}([.]\d{3})+'
+    cost_regex = '\d{1,3}([.]\d{3})+([,]\d+)?'
     if re.search(cost_regex, cell):
         return True
     return False
 
 #get all cost in the cell
 def getCosts(cell):
-    cost_regex = '\d{1,3}([.]\d{3})+'
+    cost_regex = '\d{1,3}([.]\d{3})+([,]\d+)?'
     
     result = []
     
@@ -378,35 +420,45 @@ def getPartiesInfo(tables):
                 if len(seller)==0 and containSellerInfo(cell):
 #                     print('seller: ', i, ', ', j)
                     seller = getSellerInfo(cell)
-                elif len(buyer)==0 and containBuyerInfo(cell):
-#                     print('buyer: ', i, ', ', j)
-                    buyer = getBuyerInfo(cell)
+#                 elif len(buyer)==0 and containBuyerInfo(cell):
+# #                     print('buyer: ', i, ', ', j)
+#                     buyer = getBuyerInfo(cell)
                 elif len(seller)>0 and len(buyer)>0:
                     return seller, buyer
      
     return seller, buyer
 
 # get information from all tables                
-def extract(inputfile):
+def extract_from_pdf(inputfile):
     result = {}
     tables = camelot.read_pdf(inputfile, pages="1-end", flavor='lattice', process_background=True)
+    text = convert(inputfile)
     
     date = {}   
     seller = {}
-    buyer = {}
+#     buyer = {}
     finalCosts = {}
     allCosts = []
     
     allCosts = getAllCosts(tables)
     
-    date = getAllDate(inputfile)
+    date = getAllDate(text)
     finalCosts = getFinalCosts(allCosts)
 
     seller, buyer = getPartiesInfo(tables)    
         
     result.update(date)
+    
+    if len(seller)==0:
+        seller = {'sellerLegalName': '', 'sellerTaxCode': ''}
+    seller = backupSellerInfo(text, seller)
+    
+#     if len(buyer)==0:
+#         buyer = {'buyerLegalName': '', 'buyerTaxCode': ''}
+    
+    
     result.update(seller)
-    result.update(buyer)
+#     result.update(buyer)
     result.update(finalCosts)
     
     return result
