@@ -1,0 +1,66 @@
+import re
+import unicodedata
+
+def toLower(s):
+    if type(s) == type(u""):
+        return s.lower()
+    return unicode(s, "utf8").lower().encode("utf8")
+
+def khongdau(s):
+    s = re.sub(u'Đ', 'D', s)
+    s = re.sub(u'đ', 'd', s)
+    return unicodedata.normalize('NFKD', s).encode('ASCII', 'ignore').decode('utf-8')
+
+def preprocess(text):
+    
+    result = []
+    
+    # remove unnecessary characters
+    text = text.replace(',', '')
+    text = text.replace('\n', '')
+    text = text.replace('.', '')
+    
+    # convert to all lower case
+    text = toLower(text)
+    
+    # remove tone marks
+    text = khongdau(text)
+    
+    # split to list of words
+    result = text.split()
+    
+    return result
+
+def convertWordToNum(text):
+    result = 0
+    vector = preprocess(text)
+#     print(vector)
+    n = len(vector)
+    
+    post_dict = {'ty': 1000000000, 'trieu': 1000000, 'nghin': 1000, 'ngan': 1000, 'tram': 100, 'muoi': 10, 'dong': 1}
+    digit_dict = {'khong': 0, 'mot': 1, 'hai': 2, 'ba': 3, 'bon': 4, 'tu': 4, 'nam': 5, 'lam': 5, 'sau': 6, 'bay': 7, 'tam': 8, 'chin': 9, 'muoi': 10}
+    
+    stack = []
+    
+    l = 0
+    
+    for i in range(n):
+        word = vector[i]
+        if (word == 'muoi' and i>0 and vector[i-1] in digit_dict) or \
+            (word != 'muoi' and word in post_dict):
+            val = post_dict.get(word)
+            sum = 0
+            while (stack) and (stack[-1] < val):
+                sum += stack.pop()
+            stack.append(sum*val)
+        elif (word in digit_dict) and i>0 and (vector[i-1] in digit_dict) and (vector[i-1] not in ['muoi']):
+            val = stack.pop()*10 + digit_dict.get(word)
+            stack.append(val)
+        elif word in digit_dict:
+            val = digit_dict.get(word)
+            stack.append(val)       
+#         print(stack)
+    while stack:
+        result += stack.pop()
+    return result
+
