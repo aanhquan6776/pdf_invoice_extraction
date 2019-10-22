@@ -1,4 +1,5 @@
-# first
-first try with git
+# pdf invoice extraction
 
-first try with github, too
+read Vietnamese E invoice in the form of pdf file
+
+get the information of seller, date and expense
