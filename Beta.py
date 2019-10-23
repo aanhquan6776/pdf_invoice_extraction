@@ -209,7 +209,7 @@ def getAllDate(text):
     result.update({'signedDate': signedDate})
     return result
 
-################# GET SELLER AND BUYER INFORMATION ######################
+################# GET SELLER INFORMATION ######################
 def preprocessLegalName(name):
     return ' '.join(name.split())
 
@@ -247,12 +247,13 @@ def containSellerInfo(cell):
 
 #get seller name in the cell
 def getSellerLegalName(cell):
+#     print(cell)  
     result = ''
     begin = 0
     end = len(cell)
     
     beginreg = ['đơn vị bán hàng|đơn vị bán']
-    sellerreg = ['công ty', 'doanh nghiệp', 'tập đoàn']
+    sellerreg = ['công ty', 'doanh nghiệp', 'tập đoàn', 'chi nhánh', 'tổng công ty']
     endreg = ['mã số thuế|mst', 'địa chỉ', 'điện thoại', 'website', 'số tài khoản|stk']
     otherreg = ['hóa đơn', 'giá trị', 'gia tăng', 'mẫu số', 'ký hiệu', 'số', 'liên', 'ngày', 'tháng', 'năm']
     
@@ -264,29 +265,28 @@ def getSellerLegalName(cell):
             if colonfound:
                 begin = begin + colonfound.end()
             break
-#     print(cell[begin:end], '\n')
-            
+    
+    tmp = end
+    for reg in sellerreg:
+        found = re.search(reg, cell[begin:end], re.IGNORECASE)
+        if found:
+            tmp = min(tmp, found.start())
+    if tmp==end:
+        begin = begin
+    else:
+        begin = begin + tmp
+
     for reg in endreg:
         found = re.search(reg, cell[begin:], re.IGNORECASE)
         if found:
             end = min(end, begin + found.start())
-#     print(cell[begin:end], '\n')
     
-    for reg in sellerreg:
-        found = re.search(reg, cell[begin:end], re.IGNORECASE)
-        if found:
-            begin = begin + found.start()
-            break
-#     print(cell[begin:end], '\n')
-
     for reg in otherreg:
         found = re.search(reg, cell[begin:], re.IGNORECASE)
         if found:
             end = min(end, begin + found.start())
-#     print(cell[begin:end], '\n')
             
     result = cell[begin:end].strip()
-    
     return result
 
 #get seller info in getSellerInfo function fail
@@ -294,75 +294,62 @@ def backupSellerInfo(text, seller):
     for key, engkey in sellerRegex.items():
         if len(seller.get(engkey))==0:
             return getSellerInfo(text)
-#     return getSellerLegalName(text)
     return seller
 
 #get seller info in the cell
 def getSellerInfo(cell):
     result = {}
-    allreg = ['đơn vị bán hàng|đơn vị bán', 'địa chỉ', 'mã số thuế|mst', 'điện thoại', 'website', 'số tài khoản|stk']
-    for key, engkey in sellerRegex.items():
-        if key == 'đơn vị bán hàng|đơn vị bán':
-            value = preprocessLegalName(getSellerLegalName(cell))
-            result.update({engkey:value})
-        else:
-            found = re.search(key, cell, re.IGNORECASE)
-            if found:
-                begin = found.end()
-                firstcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
-                if firstcolonfound:
-                    begin = begin + firstcolonfound.end()
-
-                secondcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
-                end = len(cell)
-                if secondcolonfound:
-                    end = begin + secondcolonfound.end()
-
-                for otherreg in allreg:
-                    if not otherreg == key:
-                        actualend = re.search(otherreg, cell[begin:end], re.IGNORECASE)
-                        if actualend:
-                            end = begin + actualend.start()
-                            break
-                        else:
-                            end = end
-                value = cell[begin : end].strip()
-                if key == 'mã số thuế|mst':
-                    value = preprocessTaxCode(value)
-                result.update({engkey:value})
-    return result
-
-# #get buyer info in the cell
-# def getBuyerInfo(cell):
-#     result = {}
-#     allreg = ['địa chỉ', 'mã số thuế|mst', 'điện thoại', 'website', 'họ tên người mua hàng|người mua', \
-#               'khách hàng', 'tên đơn vị|đơn vị', 'hình thức thanh toán|httt', 'số tài khoản|stk']
-#     for key, engkey in buyerRegex.items():
-#         found = re.search(key, cell, re.IGNORECASE)
-#         if found:
-#             begin = found.end()
-#             firstcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
-#             if firstcolonfound:
-#                 begin = begin + firstcolonfound.end()
-            
-#             secondcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
-#             end = len(cell)
-#             if secondcolonfound:
-#                 end = begin + secondcolonfound.end()
+    basic_regex = 'mã số thuế|mst'
+    seller_regex = 'đơn vị bán hàng|đơn vị bán'
+    buyer_regex = 'khách hàng|mua hàng|tên đơn vị|đơn vị'
+    third_regex = 'cung cấp giải pháp hóa đơn điện tử|phát hành|bởi'
+    all_regex = ['địa chỉ', 'mã số thuế|mst', 'điện thoại', 'website', 'số tài khoản|stk']
+    
+    start = 0
         
-#             for otherreg in allreg:
-#                 if not otherreg == key:
-#                     actualend = re.search(otherreg, cell[begin:end], re.IGNORECASE)
-#                     if actualend:
-#                         end = begin + actualend.start()
-#                         break
-#                     else:
-#                         end = end
-#             value = cell[begin : end].strip()
-#             if key == 'mã số thuế|mst':
-#                 value = preprocessTaxCode(value)
-#             result.update({engkey:value})
-#     return result
+    while start<len(cell):
+        # firstly, search for taxcode in the text
+        taxcode_found = re.search(basic_regex, cell[start:], re.IGNORECASE)
+        if taxcode_found:
+            # ensure that it is seller information          
+            if re.search(seller_regex, cell[start: start + taxcode_found.start()], re.IGNORECASE) \
+            or (not re.search(buyer_regex, cell[start: start + taxcode_found.start()], re.IGNORECASE) \
+            and not re.search(third_regex, cell[start: start + taxcode_found.start()], re.IGNORECASE)):
+                # get the name and the taxcode
+                for key, engkey in sellerRegex.items():
+                    if key == seller_regex:
+                        value = preprocessLegalName(getSellerLegalName(cell[start:start+taxcode_found.start()]))
+                        result.update({engkey:value})
+                    else:
+                        begin = start + taxcode_found.end()
+                        firstcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
+                        if firstcolonfound:
+                            begin = begin + firstcolonfound.end()
+
+                        secondcolonfound = re.search(':', cell[begin:], re.IGNORECASE)
+                        end = len(cell)
+                        if secondcolonfound:
+                            end = begin + secondcolonfound.end()
+
+                        for otherreg in all_regex:
+                            if not otherreg == key:
+                                actualend = re.search(otherreg, cell[begin:end], re.IGNORECASE)
+                                if actualend:
+                                    end = begin + actualend.start()
+                                    break
+                                else:
+                                    end = end
+                        value = cell[begin : end].strip()
+                        if key == 'mã số thuế|mst':
+                            value = preprocessTaxCode(value)
+                        result.update({engkey:value})
+                return result
+            else:
+                start = taxcode_found.end()
+        else:
+            break
+            
+    return result
 
 ################ GET COSTS #################
 
