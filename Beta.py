@@ -6,10 +6,30 @@ from pdfminer.converter import TextConverter
 from pdfminer.layout import LAParams
 from pdfminer.pdfpage import PDFPage
 from datetime import date
+from pdf2image import convert_from_path
+from PIL import Image
 
 sellerRegex = {'đơn vị bán hàng|đơn vị bán': 'sellerLegalName', 'mã số thuế|mst': 'sellerTaxCode'}
 buyerRegex = {'tên đơn vị|đơn vị': 'buyerLegalName', 'mã số thuế|mst': 'buyerTaxCode'}
 datespliter = ['-', '/']
+
+################# IF THE PDF FILE IS IMAGE-BASED, CONVERT TO IMAGE ##############
+
+def checkFinalResult(inputfile, result):
+    if result.get('totalWithVAT')=='':
+        convert_to_image(inputfile)
+        
+def convert_to_image(inputfile):
+    pages = convert_from_path(inputfile)
+    result = Image.new(pages[0].mode, (pages[0].width, pages[0].height*len(pages)))
+    y = 0
+    x = 0
+    for i in range(len(pages)):
+        result.paste(pages[i], (x, y))
+        y = y + pages[i].height
+
+    outputfile = inputfile[:-4]+'_to_image.png'
+    result.save(outputfile)
 
 ################## GET DATES (CREATE DATE AND SIGNED DATE) #################
 
@@ -144,19 +164,7 @@ def getCreateDate(text):
             begin = begin + found.end()
         else:
             break
-    
-    
-#     print(daylist)
-#     print(yearlist)
-#     if len(yearlist)>0:
-#         yearstring = yearlist[0]
-#         currentyear = date.today().year    
-#         for year in yearlist:
-#             if (int(year)<=currentyear and currentyear-int(year)<currentyear-int(yearstring)):
-#                 yearstring = year
-#     else:
-#         return result
-    
+
     if yearlist:
         yearstring = yearlist[0]
         if len(daylist)>=2:
@@ -392,10 +400,18 @@ def getAllCosts(tables):
     return result
 
 #get totalWithoutVAT, totalVAT, and totalWithVAT
-def getFinalCosts(allCosts):
+def getFinalCosts(tables):
     finalCosts = {'totalWithoutVAT': '', 'totalVAT': '', 'totalWithVAT': ''}
+    allCosts = getAllCosts(tables)
+    
     if len(allCosts)<3:
         return finalCosts
+    
+    if len(allCosts)>1:
+        if allCosts[-1]==allCosts[-2]:
+            allCosts.append(allCosts[-1])
+            allCosts[-2] = '0'        
+    
     i = -3
     for reg in finalCosts.keys():
         finalCosts.update({reg: allCosts[i]})
@@ -418,11 +434,7 @@ def getPartiesInfo(tables):
             for j in range(n):
                 cell = row[j]
                 if len(seller)==0 and containSellerInfo(cell):
-#                     print('seller: ', i, ', ', j)
                     seller = getSellerInfo(cell)
-#                 elif len(buyer)==0 and containBuyerInfo(cell):
-# #                     print('buyer: ', i, ', ', j)
-#                     buyer = getBuyerInfo(cell)
                 elif len(seller)>0 and len(buyer)>0:
                     return seller, buyer
      
@@ -436,15 +448,10 @@ def extract_from_pdf(inputfile):
     
     date = {}   
     seller = {}
-#     buyer = {}
     finalCosts = {}
-    allCosts = []
-    
-    allCosts = getAllCosts(tables)
-    
-    date = getAllDate(text)
-    finalCosts = getFinalCosts(allCosts)
 
+    date = getAllDate(text)
+    finalCosts = getFinalCosts(tables)
     seller, buyer = getPartiesInfo(tables)    
         
     result.update(date)
@@ -453,12 +460,8 @@ def extract_from_pdf(inputfile):
         seller = {'sellerLegalName': '', 'sellerTaxCode': ''}
     seller = backupSellerInfo(text, seller)
     
-#     if len(buyer)==0:
-#         buyer = {'buyerLegalName': '', 'buyerTaxCode': ''}
-    
-    
     result.update(seller)
-#     result.update(buyer)
     result.update(finalCosts)
     
+    checkFinalResult(inputfile, result)
     return result
